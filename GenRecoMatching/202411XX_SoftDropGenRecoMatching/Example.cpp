@@ -13,6 +13,8 @@ using namespace std;
 #include "TGraph.h"
 #include "TLorentzVector.h"
 #include "grooming.h"
+#include "TStyle.h"  // Required for gStyle
+
 #define maxJets 2400
 
 
@@ -76,6 +78,7 @@ int main()
     vector<Jet> Reco;
     vector<TH1F*> Angle;
     vector < TH2F*> correlation;
+    vector <TH2F*> EZG;
     vector<FourVector> Particles;
     
     
@@ -85,16 +88,42 @@ int main()
     // Reading the text files for enegy correction
     JetCorrector JEC({"JEC_EEAK4_MC_20210513.txt", "JEC_EEAK4_DataL2_20210514.txt", "JEC_EEAK4_DataL3_20210514.txt"});
     
-    
+    //declaration of angle plot
     Angle.push_back(new TH1F("Angle_genreco", "0 < angle < math.pi", 100, 0, 3.5));
     
-    
+    //declaration of energy and zg plot
     correlation.push_back( new TH2F("Energy_correlation", " Energy correlation" , 100, 0 , 60 , 100, 0 , 60));
     correlation.push_back( new TH2F("ZG_correlation", " ZG correlation" , 100, 0 , 1 , 100, 0 , 1));
     if (!input1 || input1->IsZombie()) {
         cerr << "Error: Could not open input file." << endl;
         return 1;
     }
+    
+    
+    
+    //declaration of energy and zg plot
+
+    // Define energy bin edges (0 to 60 in steps of 5, for example)
+    std::vector<double> energyBins = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55};
+
+    // Create a 2D histogram for every pair of energy bins
+    std::vector<std::vector<TH2F*>> EZGMatrix; // Store 2D histograms in a matrix-like structure
+    for (size_t i = 0; i < energyBins.size() - 1; ++i) {
+        std::vector<TH2F*> row;
+        for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+            TString name = Form("EZG_%lu_%lu", i, j);
+            TString title = Form("%g < Gen E < %g vs %g < Reco E < %g",
+                                  energyBins[i], energyBins[i + 1],
+                                  energyBins[j], energyBins[j + 1]);
+            row.push_back(new TH2F(name, title, 100, 0.05, .55, 100, 0.05, .55)); // ZG on both axes
+        }
+        EZGMatrix.push_back(row);
+    }
+
+    
+    
+    
+    
     
     //Acessing the trees in the root file and renaming them
     TTree *Tree1 = (TTree *)input1->Get("akR4ESchemeJetTree");
@@ -148,8 +177,8 @@ int main()
     
     // Loop over events and match generated and reconstructed jets
     Long64_t nEntries = min(Tree1->GetEntries(), Tree2->GetEntries());
-    //for (Long64_t i = 0; i < nEntries; ++i) {
-    for (Long64_t i = 0; i < 1000; ++i) {
+    for (Long64_t i = 0; i < nEntries; ++i) {
+   // for (Long64_t i = 0; i < 10000; ++i) {
         Gen.clear() ;
         Reco.clear();
         Particles.clear();
@@ -165,7 +194,7 @@ int main()
         // creating gen jet vector with their pT eta phi
         for (int j = 0; j < nrefGen; ++j) {
             
-            
+            Particles.clear();
             vector<Node *> Nodesgen;
             //E= p^2  + m^2, we need this for energy correction
             
@@ -245,11 +274,11 @@ int main()
                 
                
                     
-                    double ZGgen = PT2 / (PT1 + PT2);
-                    
+                    double ZGgen = std::min(PT1,PT2) / (PT1 + PT2);
+                    double Egen= Nodesgen[0]->P[0]; // Total energy of the jet
               
-                cout<< "PT1 gen " << PT1 << endl;
-                cout<< "PT2 gen " << PT2 << endl;
+                cout<< "Egen gen " << Egen << endl;
+                
                     
                
                 
@@ -270,7 +299,7 @@ int main()
         
         // Creating reco jet vector with their pT eta phi
         for (int j = 0; j < nrefReco; ++j) {
-          
+            Particles.clear();
             //node vector decleration for particle tree creation
             vector<Node *> Nodesreco;
             
@@ -354,14 +383,18 @@ int main()
                 double PT2 = SDNodereco->Child2->P[0];
                 
                 
-                cout<< "PT1 RECO1 " << PT1 << endl;
-                cout<< "PT2 RECO1 " << PT2 << endl;
+               
                 
               
-                    double ZGreco = PT2 / (PT1 + PT2);
+                    double ZGreco =std::min(PT1,PT2) / (PT1 + PT2);
+                    double Ereco= Nodesreco[0]->P[0]; // Total energy of the jet
+                // Fill histograms based on jet energy
+
+                
+                
                     
-                    cout<< "PT1 RECO2 " << PT1 << endl;
-                    cout<< "PT2 RECO2 " << PT2 << endl;
+                    cout<< "Ereco " << Ereco << endl;
+                    
                     
                     Reco.emplace_back(Jet(jtptReco[j]* f_factor, jtetaReco[j],  jtphiReco[j], E_reco, ZGreco ));
                     
@@ -394,6 +427,24 @@ int main()
             {   correlation[0]-> Fill(Gen[m.first].E, Reco[m.second].E ) ;
                 
                 correlation[1]-> Fill(Gen[m.first].ZG, Reco[m.second].ZG) ;
+                
+                // Loop over energy bins
+                double genE = Gen[m.first].E;
+                 double recoE = Reco[m.second].E;
+                 double zgGen = Gen[m.first].ZG;
+                 double zgReco = Reco[m.second].ZG;
+
+                 // Loop over all energy bin pairs to find the correct histogram
+                 for (size_t i = 0; i < energyBins.size() - 1; ++i) {
+                     for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+                         if (genE >= energyBins[j] && genE < energyBins[j + 1] &&
+                             recoE >= energyBins[i] && recoE < energyBins[i + 1]) {
+                             EZGMatrix[i][j]->Fill(zgReco, zgGen); // Fill the appropriate histogram
+                             break;
+                         }
+                        }
+                    }
+                
             }
             
         }
@@ -408,9 +459,16 @@ int main()
     Angle[0]->Draw();
     canvas1->cd(1)->SetLogy();
     
+    
     canvas1->cd(2);
     correlation[1]->Draw();
     canvas1->cd(2)->SetLogz();
+    
+    
+    
+    canvas1->cd(3);
+    correlation[0]->Draw();
+    canvas1->cd(3)->SetLogz();
     
     // Optional TGraph usage
     TGraph G;
@@ -421,9 +479,72 @@ int main()
     canvas1->SaveAs("Gen_Reco_angle_Distribution.pdf");
     
     
-    
-    
-    
+    // Create a canvas for the matrix plot
+    TCanvas *canvas_matrix = new TCanvas("canvas_matrix", "Smearing Matrix", 2000, 2000);
+    size_t nRows = energyBins.size() - 1; // Number of energy bins
+    size_t nCols = energyBins.size() - 1;
+    canvas_matrix->Divide(nCols, nRows); // Create a grid layout (12x12, for example)
+   
+    canvas_matrix->SetFixedAspectRatio(); // Ensures square proportions
+
+    double padSize = 0.90 / nCols; // Each pad's relative size in the canvas
+    std::vector<std::vector<TPad*>> Pads; // Store pads for manual layout
+
+    // Create tightly packed pads
+    for (size_t i = 0; i < nRows; ++i) {
+        std::vector<TPad*> row;
+        for (size_t j = 0; j < nCols; ++j) {
+            TString padName = Form("pad_%lu_%lu", i, j);
+            double xLow = j * padSize;
+            double xHigh = (j + 1) * padSize;
+            double yLow = i * padSize; // Flip y-axis
+            double yHigh =(i + 1) * padSize;
+
+            TPad *pad = new TPad(padName, "", xLow, yLow, xHigh, yHigh);
+            pad->SetMargin(0.01, 0.01, 0.01, 0.01); // Remove space
+            pad->Draw();
+            row.push_back(pad);
+        }
+        Pads.push_back(row);
+    }
+    // Enable color palette
+   // gStyle->SetPalette(55);   // Alternative: 55 (kRainBow), 57 (kViridis)
+    gStyle->SetOptStat(0);    // Disable stats boxes
+
+    // Draw histograms inside each pad
+    for (size_t i = 0; i < nRows; ++i) {
+        for (size_t j = 0; j < nCols; ++j) {
+            Pads[i][j]->cd();
+            EZGMatrix[i][j]->SetTitle(""); // Remove title
+            EZGMatrix[i][j]->Draw("COLZ");
+            gPad->SetLogz(); // Optional log scale
+
+            // X-axis labels only for bottom row
+            if (i == nRows - 1)
+                EZGMatrix[i][j]->GetXaxis()->SetTitle("Reco Energy ZG");
+            else
+                EZGMatrix[i][j]->GetXaxis()->SetLabelSize(0);
+
+            // Y-axis labels only for leftmost column
+            if (j == 0)
+                EZGMatrix[i][j]->GetYaxis()->SetTitle("Gen Energy ZG");
+            else
+                EZGMatrix[i][j]->GetYaxis()->SetLabelSize(0);
+            
+            EZGMatrix[i][j]->SetStats(0); // Disable stats box
+
+        }
+    }
+
+    // Save the properly formatted matrix
+    canvas_matrix->SaveAs("SmearingMatrix_Fixed.pdf");
+
+  
+
+
+    // Save the canvas as a PDF
+    canvas_matrix->SaveAs("EnergyCorrelationMatrix.pdf");
+
     
     
     input1->Close();
