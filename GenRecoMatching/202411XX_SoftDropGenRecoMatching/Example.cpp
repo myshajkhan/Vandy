@@ -1,29 +1,29 @@
+using namespace std;
+
 #include <iostream>
 #include <vector>
 #include <map>
 #include <cmath>
-using namespace std;
+
+#include "TROOT.h"
 #include "TFile.h"
 #include "TTree.h"
-#include "Matching.h"
 #include "TH1F.h"
 #include "TH2F.h"
 #include "TCanvas.h"
-#include "JetCorrector.h"
 #include "TGraph.h"
 #include "TLorentzVector.h"
-#include "grooming.h"
 #include "TStyle.h"  // Required for gStyle
 
+#include "JetCorrector.h"
+#include "Matching.h"
+#include "grooming.h"
 #define maxJets 2400
-
 
 // We are creating construction fuction "Jet".
 struct Jet
 {
     
-//We want to make it public so it can be accesed from anywhere- outside the code.
-public:
     //Declaring the member varibales for Jet
     double PT;
     double Eta;
@@ -36,54 +36,57 @@ public:
     {
         
     }
-    
 };
-
 
 //Metric fuction is finding the angle between gen and reco jet
 double Metric(Jet Gen, Jet Reco)
 {
-    double gen_px =  Gen.PT * cos(Gen.Phi);
-    double gen_py =  Gen.PT * sin(Gen.Phi);
-    double gen_pz =  Gen.PT * sinh(Gen.Eta);
-    double gen_p = Gen.PT * cosh(Gen.Eta);
-    
-    
-    
-    
-    
-    double reco_px =  Reco.PT * cos(Reco.Phi);
-    double reco_py =  Reco.PT * sin(Reco.Phi);
-    double reco_pz =  Reco.PT * sinh(Reco.Eta);
-    double reco_p = Reco.PT * cosh(Reco.Eta);
-    double gen_reco_dot = (gen_px * reco_px) + (gen_py * reco_py) +  (gen_pz * reco_pz) ;
-    
-    
-    
-    double cos_angle = gen_reco_dot / (gen_p *  reco_p) ;
-    
+    double gen_px =  Gen.PT * cos(Gen.Phi); // Calculate the x-component of the gen jet's momentum using transverse momentum and azimuthal angle
+    double gen_py =  Gen.PT * sin(Gen.Phi);  // Calculate the y-component of the gen jet's momentum
+    double gen_pz =  Gen.PT * sinh(Gen.Eta); // Calculate the z-component of the gen jet's momentum using pseudorapidity
+    double gen_p = Gen.PT * cosh(Gen.Eta); // Calculate the magnitude of the gen jet's momentum vector
+    double reco_px =  Reco.PT * cos(Reco.Phi); // Calculate the x-component of the reco jet's momentum
+    double reco_py =  Reco.PT * sin(Reco.Phi); // Calculate the y-component of the reco jet's momentum
+    double reco_pz =  Reco.PT * sinh(Reco.Eta);  // Calculate the z-component of the reco jet's momentum
+    double reco_p = Reco.PT * cosh(Reco.Eta); // Calculate the magnitude of the reco jet's momentum vector
+    double gen_reco_dot = (gen_px * reco_px) + (gen_py * reco_py) +  (gen_pz * reco_pz) ;  // Compute the dot product between the gen and reco momentum vectors
+    double cos_angle = gen_reco_dot / (gen_p *  reco_p) ;  // Compute the cosine of the angle between the two vectors using the dot product formula
     
     // avoing cos value larger than 1, so we dont get arc cos = nan
-    if ( cos_angle > 0.9999999 ) cos_angle = 0.9999 ;
-    if ( cos_angle < -0.9999999 ) cos_angle = -0.9999 ;
+    if ( cos_angle > 0.9999999999 ) cos_angle = 0.9999999999 ;
+    if ( cos_angle < -0.9999999999 ) cos_angle = -0.9999999999 ;
     return acos(cos_angle);
 }
 
-
 int main()
-
 {
     // Declaring vectors( Gen, reco) that will hold all the generated objects that carry the structure (Jet , TH1F, TH2F)
-    vector<Jet> Gen;
-    vector<Jet> Reco;
-    vector<TH1F*> Angle;
-    vector < TH2F*> correlation;
-    vector <TH2F*> EZG;
-    vector<FourVector> Particles;
+    vector<Jet> Gen; // Vector to store all generated (truth-level) jets for the current event
+    vector<Jet> Reco; // Vector to store all reconstructed (detector-level) jets for the current event
+    vector<Jet> RecoData; // Vector to store reconstructed jets from actual experimental data (not simulation)
+    vector <Jet> FakeRecoJet; // Vector to store reco jets that did not match any gen jet
+    vector <Jet> unmatchedGen; // Vector to store gen jets that didn’t find a matching reco jet — potentially lost or misreconstructed
     
+    vector<TH1F*> Angle; // Vector of 1D histograms to record the angular distance between matched gen and reco jets
+    vector <TH1F*> ZGreco; // Vector of 1D histograms for storing ZG distributions from reconstructed jets (simulated)
+    vector <TH1F*> ZGgen; // Vector of 1D histograms for ZG distributions from generated jets (truth-level)
+    vector <TH1F*> ZGDatareco; // Vector of 1D histograms for ZG distributions from reconstructed data jets (real data)
+    vector <TH2F*> correlation; // Vector of 2D histograms to record correlations — e.g., energy or ZG between Gen and Reco jets
+    vector <TH2F*> EZG; // Vector of 2D histograms used for ZG vs ZG plots, likely across energy bins (indexed as a matrix)
     
-    // Open the input file
-    TFile *input1 = TFile::Open("./LEP1MC1994_recons_aftercut-002.root", "READ");
+    vector<vector<TH2F*>> EZGMatrix; // Store 2D histograms in a matrix-like structure
+    vector<FourVector> Particles; // Vector to temporarily store four-momentum vectors (e.g., of jet constituents) for grooming
+    vector<double> energyBins = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55}; // Define energy bin edges for histogramming or bin-based analysis (12 bins from 0 to 55 in steps of 5)
+    
+    int numBinsPerRange = 100; // Assuming 100 bins per ZG axis
+    
+    //Opening our input files
+    TFile *input1 = TFile::Open("./LEP1MC1994_recons_aftercut-002.root", "READ"); //MC generated data input data
+    TFile *input2 = TFile::Open("./LEP1Data1994P3_recons_aftercut-MERGED.root", "READ"); // Real data input file
+    if (!input1 || input1->IsZombie() || !input2 || input2->IsZombie() ) {
+        cerr << "Error: Could not open input file." << endl;
+        return 1;
+    }
     
     // Reading the text files for enegy correction
     JetCorrector JEC({"JEC_EEAK4_MC_20210513.txt", "JEC_EEAK4_DataL2_20210514.txt", "JEC_EEAK4_DataL3_20210514.txt"});
@@ -94,103 +97,141 @@ int main()
     //declaration of energy and zg plot
     correlation.push_back( new TH2F("Energy_correlation", " Energy correlation" , 100, 0 , 60 , 100, 0 , 60));
     correlation.push_back( new TH2F("ZG_correlation", " ZG correlation" , 100, 0 , 1 , 100, 0 , 1));
-    if (!input1 || input1->IsZombie()) {
-        cerr << "Error: Could not open input file." << endl;
-        return 1;
+    
+    //Define one ZG histogram per reconstructed energy bin range (12 total), to analyze ZG vs MC Reco E
+    for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+        TString name = Form("ZGreco_%lu_%lu", j, j+1);
+        TString title = Form("%g < Reco E < %g ", energyBins[j], energyBins[j + 1]);
+        ZGreco.push_back(new TH1F(name, title, 100, 0.05, .55)); // ZG on both axes
     }
     
+    //Define one ZG histogram per reconstructed energy bin range (12 total), to analyze ZG vs Data Reco E
+    for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+        TString name = Form("ZGDatareco_%lu_%lu", j, j+1);
+        TString title = Form("%g < DataReco E < %g ", energyBins[j], energyBins[j + 1]);
+        ZGDatareco.push_back(new TH1F(name, title, 100, 0.05, .55)); // ZG on both axes
+    }
     
+    //Define one ZG histogram per reconstructed energy bin range (12 total), to analyze ZG vs MC Gen
+    for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+        TString name = Form("ZGgen_%lu_%lu", j, j+1 );
+        TString title = Form("%g < Reco E < %g ",energyBins[j], energyBins[j + 1]);
+        ZGgen.push_back(new TH1F(name, title, 100, 0.05, .55)); // ZG on both axes
+    }
     
-    //declaration of energy and zg plot
-
-    // Define energy bin edges (0 to 60 in steps of 5, for example)
-    std::vector<double> energyBins = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55};
-
     // Create a 2D histogram for every pair of energy bins
-    std::vector<std::vector<TH2F*>> EZGMatrix; // Store 2D histograms in a matrix-like structure
     for (size_t i = 0; i < energyBins.size() - 1; ++i) {
         std::vector<TH2F*> row;
         for (size_t j = 0; j < energyBins.size() - 1; ++j) {
             TString name = Form("EZG_%lu_%lu", i, j);
             TString title = Form("%g < Gen E < %g vs %g < Reco E < %g",
-                                  energyBins[i], energyBins[i + 1],
-                                  energyBins[j], energyBins[j + 1]);
-            row.push_back(new TH2F(name, title, 100, 0.05, .55, 100, 0.05, .55)); // ZG on both axes
+                                 energyBins[i], energyBins[i + 1],
+                                 energyBins[j], energyBins[j + 1]);
+            row.push_back(new TH2F(name, title, 100, 0.05, .55, 100, 0.05, .55)); //ZG on both axes
         }
         EZGMatrix.push_back(row);
     }
-
     
+    int numEnergyRanges = EZGMatrix.size(); // Total energy bins
     
+    // Define large smearing matrix with correct binning
+    TH1F *SmearingZGrecoMatrix = new TH1F("SmearZG_reco", "RecoZG", numBinsPerRange * numEnergyRanges, 0, numBinsPerRange * numEnergyRanges);
+    TH1F *SmearingZGgenMatrix = new TH1F("SmearZG_gen", "RecoZG", numBinsPerRange * numEnergyRanges, 0, numBinsPerRange * numEnergyRanges);
+    TH1F *SmearingZGDatarecoMatrix = new TH1F("SmearZG_Datagen", "DataRecoZG", numBinsPerRange * numEnergyRanges, 0, numBinsPerRange * numEnergyRanges);
+    TH1F *FakeRecoJetsE = new TH1F("FakeRecoJetsenergy", "Fake Reco Jets Energy", 100, 0, 10);
+    TH1F *RealRecoJetsE = new TH1F("RealRecoJetsenergy", "Real Reco Jets Energy", 100, 0, 10);
+    TH1F *UnmatchedGen = new TH1F("unmatchGenenergy", "Unmatched Gen Jet Energy", 100, 0, 10);
     
-    
+    TH2F *SmearingMatrix = new TH2F("SmearingMatrix", "Combined Smearing Matrix",
+                                    numBinsPerRange * numEnergyRanges, 0, numBinsPerRange * numEnergyRanges, // X-axis
+                                    numBinsPerRange * numEnergyRanges, 0, numBinsPerRange * numEnergyRanges); // Y-axis
     
     //Acessing the trees in the root file and renaming them
-    TTree *Tree1 = (TTree *)input1->Get("akR4ESchemeJetTree");
-    TTree *Tree2 = (TTree *)input1->Get("akR4ESchemeGenJetTree");
-    TTree *Tree3 = (TTree *)input1->Get("t");
-    TTree *Tree4 = (TTree *)input1->Get("tgen");
+    TTree *Tree1 = (TTree *)input1->Get("akR4ESchemeJetTree"); // Reconstructed jet tree from MC simulation (detector-level jets)
+    TTree *Tree2 = (TTree *)input1->Get("akR4ESchemeGenJetTree"); //Generated jet tree from MC simulation (truth-level jets)
+    TTree *Tree3 = (TTree *)input1->Get("t"); //Particle-level information for reconstructed MC jets
+    TTree *Tree4 = (TTree *)input1->Get("tgen"); //Particle-level information for generated MC jets (truth constituents)
+    TTree *Tree5 = (TTree *)input2->Get("akR4ESchemeJetTree"); // Reconstructed jet tree from real experimental data
+    TTree *Tree6= (TTree *)input2->Get("t"); // Particle-level information for reconstructed data jets (constituents from real data)
     
-    if (!Tree1|| !Tree2) {
+    if (!Tree1|| !Tree2 || !Tree3 || !Tree4 || !Tree5 || !Tree6   ) {
         cerr << "Error: TTree not found in input file." << endl;
         return 1;
     }
     
+    // Arrays for jet-level quantities for jet and particles from input 1
+    Float_t jtptReco[maxJets], jtphiReco[maxJets], jtetaReco[maxJets],  jtmReco[maxJets]; //MC Jet level arrays for reco jets
+    Float_t jtptGen[maxJets], jtphiGen[maxJets], jtetaGen[maxJets], jtmGen[maxJets]; //MC Jet level arrays for gen jets
+    Float_t ptReco[maxJets], phiReco[maxJets],etaReco[maxJets], massReco[maxJets]; //MC particle level arrays for reco jets
+    Float_t ptGen[maxJets], phiGen[maxJets], etaGen[maxJets], massGen[maxJets]; //MC particle level arrays for gen jets
     
-    // Set branch addresses
-    Float_t jtptReco[maxJets], jtphiReco[maxJets], jtetaReco[maxJets], jtptGen[maxJets], jtphiGen[maxJets], jtetaGen[maxJets],  jtmGen[maxJets],  jtmReco[maxJets], ptGen[maxJets], phiGen[maxJets], etaGen[maxJets], massGen[maxJets], ptReco[maxJets], phiReco[maxJets],etaReco[maxJets], massReco[maxJets];
     
+    // Arrays for jet-level quantities for jet and particles from input 2
+    Float_t jtptDataReco[maxJets], jtphiDataReco[maxJets], jtetaDataReco[maxJets],  jtmDataReco[maxJets]; //Data Jet level arrays for reco jets
+    Float_t ptDataReco[maxJets], phiDataReco[maxJets],etaDataReco[maxJets], massDataReco[maxJets]; //Data particle level arrays for reco jets
     
-    // in qoutes is the actual branch name in the data file
-    Int_t nParticle, nrefReco , nrefGen ,nParticleGen, nParticleReco  ;
+    //Defining the single varibles- total particle number and jet number
+    Int_t  nrefReco,  nrefGen,  nrefDataReco; //Jet level
+    Int_t nParticle, nParticleGen, nParticleReco,  nParticleData, nParticleDataReco ; //particle level
+    
+    //Setting branch address for reconstructed jet tree from MC simulation (detector-level jets)
     Tree1->SetBranchAddress("jtpt", jtptReco);
     Tree1->SetBranchAddress("jtphi", jtphiReco);
     Tree1->SetBranchAddress("jteta", jtetaReco);
     Tree1->SetBranchAddress("nref", &nrefReco);
     Tree1->SetBranchAddress("jtm", jtmReco);
     
+    //Setting branch address generated jet tree from MC simulation (truth-level jets)
     Tree2->SetBranchAddress("jtpt", jtptGen);
     Tree2->SetBranchAddress("jtphi", jtphiGen);
     Tree2->SetBranchAddress("jteta", jtetaGen);
     Tree2->SetBranchAddress("nref", &nrefGen);
     Tree2->SetBranchAddress("jtm", jtmGen);
     
-    
+    //Setting branch address for particle-level information for reconstructed MC jets
+    Tree3->SetBranchAddress("pt", ptReco);
+    Tree3->SetBranchAddress("phi", phiReco);
+    Tree3->SetBranchAddress("eta", etaReco);
+    Tree3->SetBranchAddress("mass", massReco);
+    Tree3->SetBranchAddress("nParticle",&nParticleReco);
+
+    //Setting branch address for particle-level information for generated MC jets (truth constituents)
     Tree4->SetBranchAddress("pt", ptGen);
     Tree4->SetBranchAddress("phi", phiGen);
     Tree4->SetBranchAddress("eta", etaGen);
     Tree4->SetBranchAddress("mass", massGen);
     Tree4->SetBranchAddress("nParticle",&nParticleGen);
     
+    //Setting branch address for reconstructed jet tree from real experimental data
+    Tree5->SetBranchAddress("jtpt", jtptDataReco);
+    Tree5->SetBranchAddress("jtphi", jtphiDataReco);
+    Tree5->SetBranchAddress("jteta", jtetaDataReco);
+    Tree5->SetBranchAddress("nref", &nrefDataReco);
+    Tree5->SetBranchAddress("jtm", jtmDataReco);
     
-    Tree3->SetBranchAddress("pt", ptReco);
-    Tree3->SetBranchAddress("phi", phiReco);
-    Tree3->SetBranchAddress("eta", etaReco);
-    Tree3->SetBranchAddress("mass", massReco);
-    Tree3->SetBranchAddress("nParticle",&nParticleReco);
-    
-    
-    
-    
-    
-    
+    //Setting branch address particle-level information for reconstructed data jets (constituents from real data)
+    Tree6->SetBranchAddress("pt", ptDataReco);
+    Tree6->SetBranchAddress("phi", phiDataReco);
+    Tree6->SetBranchAddress("eta", etaDataReco);
+    Tree6->SetBranchAddress("mass", massDataReco);
+    Tree6->SetBranchAddress("nParticle",&nParticleDataReco);
     
     // Loop over events and match generated and reconstructed jets
-    Long64_t nEntries = min(Tree1->GetEntries(), Tree2->GetEntries());
+    Long64_t nEntries = min(Tree1->GetEntries(), Tree2->GetEntries() );
     for (Long64_t i = 0; i < nEntries; ++i) {
-   // for (Long64_t i = 0; i < 10000; ++i) {
+        // for (Long64_t i = 0; i < 1000; ++i) {
         Gen.clear() ;
         Reco.clear();
+        FakeRecoJet.clear();
+        unmatchedGen.clear();
         Particles.clear();
         Tree1->GetEntry(i);
         Tree2->GetEntry(i);
         Tree3->GetEntry(i);
         Tree4->GetEntry(i);
-        // cout << " print i " << i << endl;
-        
-        
-        
-        
+        Tree5->GetEntry(i);
+        Tree6->GetEntry(i);
+     
         // creating gen jet vector with their pT eta phi
         for (int j = 0; j < nrefGen; ++j) {
             
@@ -200,8 +241,6 @@ int main()
             
             double pGen= jtptGen[j] * cosh(jtetaGen[j]);
             double E_gen = sqrt(pGen*pGen + jtmGen[j] * jtmGen[j]) ;
-            
-            
             
             // loop for particle in the gen jet
             for ( int k= 0; k< nParticleGen ; ++k)
@@ -238,10 +277,6 @@ int main()
             }
             // storing the result in gen vector
             
-            
-            
-            
-            
             // Convert particles to nodes
             
             for (size_t iP = 0; iP < Particles.size(); ++iP) {
@@ -271,20 +306,12 @@ int main()
             if (SDNodegen && SDNodegen->Child1 && SDNodegen->Child2) {
                 double PT1 = SDNodegen->Child1->P[0];
                 double PT2 = SDNodegen->Child2->P[0];
+                double ZGgen = std::min(PT1,PT2) / (PT1 + PT2);
+                double Egen= Nodesgen[0]->P[0]; // Total energy of the jet
                 
-               
-                    
-                    double ZGgen = std::min(PT1,PT2) / (PT1 + PT2);
-                    double Egen= Nodesgen[0]->P[0]; // Total energy of the jet
-              
                 cout<< "Egen gen " << Egen << endl;
-                
-                    
-               
-                
-                
+                              
                 Gen.emplace_back(Jet(jtptGen[j], jtetaGen[j],  jtphiGen[j] , E_gen , ZGgen));
-                
             }
             
             else
@@ -293,10 +320,7 @@ int main()
             
         }
         
-        
-        
-        
-        
+      
         // Creating reco jet vector with their pT eta phi
         for (int j = 0; j < nrefReco; ++j) {
             Particles.clear();
@@ -353,7 +377,7 @@ int main()
                 
                 if (Distance <= 0.4) {
                     Particles.push_back(par);
-             
+                    
                 }
                 
             }
@@ -381,26 +405,12 @@ int main()
             if (SDNodereco && SDNodereco->Child1 && SDNodereco->Child2) {
                 double PT1 = SDNodereco->Child1->P[0];
                 double PT2 = SDNodereco->Child2->P[0];
-                
-                
-               
-                
-              
-                    double ZGreco =std::min(PT1,PT2) / (PT1 + PT2);
-                    double Ereco= Nodesreco[0]->P[0]; // Total energy of the jet
+                double ZGreco =std::min(PT1,PT2) / (PT1 + PT2);
+                double Ereco= Nodesreco[0]->P[0]; // Total energy of the jet
                 // Fill histograms based on jet energy
-
                 
                 
-                    
-                    cout<< "Ereco " << Ereco << endl;
-                    
-                    
-                    Reco.emplace_back(Jet(jtptReco[j]* f_factor, jtetaReco[j],  jtphiReco[j], E_reco, ZGreco ));
-                    
-                    
-                    
-                    
+                Reco.emplace_back(Jet(jtptReco[j]* f_factor, jtetaReco[j],  jtphiReco[j], E_reco, ZGreco ));
                 
             }
             //fill hist
@@ -408,143 +418,362 @@ int main()
                 Reco.emplace_back(Jet(jtptReco[j]* f_factor, jtetaReco[j],  jtphiReco[j], E_reco, -1 ));
             
             
-        }           // mappping gen and reco jets- collection of pairs
+        }
+        
+        //Data reconstrution
+        for (int j = 0; j < nrefDataReco; ++j)  {
+            Particles.clear();
+            //node vector decleration for particle tree creation
+            vector<Node *> Nodesreco;
+            
+            //E= p^2  + m^2, we need this for energy correction
+            
+            double pDataReco= jtptDataReco[j] * cosh(jtetaDataReco[j]);
+            double E_Datareco = sqrt(pDataReco*pDataReco + jtmDataReco[j] * jtmDataReco[j]) ;
+            
+            // eta = -ln tan(theta /2)
+            
+            double theta = 2*atan( exp (-jtetaDataReco[j]));
+            
+            // MJ: There is this energy correction
+            // energy correction
+            JEC.SetJetE(E_Datareco);
+            JEC.SetJetTheta(theta);
+            JEC.SetJetPhi(jtphiDataReco[j]);
+            
+            //getting the corrected energy
+            double CorrectedEnergy = JEC.GetCorrectedE();
+            
+            double f_factor = CorrectedEnergy / E_Datareco ;
+            
+            // loop for particle in the gen jet
+            for ( int k= 0; k< nParticleReco ; ++k)
+                
+            {
+                if (jtptDataReco[j] <= 0) continue; // Skip invalid entries
+                
+                
+                double px = jtptDataReco[j] * cos(jtphiDataReco[j]);
+                double py = jtptDataReco[j] * sin(jtphiDataReco[j]);
+                double pz = jtptDataReco[j] * sinh(jtetaDataReco[j]);
+                double p = jtptDataReco[j] * cosh(jtetaDataReco[j]);
+                double E = sqrt((p * p) + (jtmDataReco[j] * jtmDataReco[j])); // Simplified for massless particles
+                
+                double parpx = ptDataReco[k] * cos(phiDataReco[k]);
+                double parpy = ptDataReco[k] * sin(phiDataReco[k]);
+                double parpz = ptDataReco[k] * sinh(etaDataReco[k]);
+                double parp = ptDataReco[k] * cosh(etaDataReco[k]);
+                double parE = sqrt((parp * parp) + (massDataReco[k] * massDataReco[k]));
+                
+                // Particles.push_back(FourVector(E, px, py, pz));
+                
+                //why am i not declaring like vector<FourVector> jetmom;
+                FourVector jetmom(E, px, py, pz);
+                FourVector par(parE, parpx, parpy, parpz);
+                
+                double Distance = GetAngle(jetmom, par);
+                
+                if (Distance <= 0.4) {
+                    Particles.push_back(par);
+                    
+                }
+                
+            }
+            
+            
+            //Creating nodes for particle
+            for (size_t iP = 0; iP < Particles.size(); ++iP) {
+                
+                Node *NewNode = new Node(Particles[iP]);
+                // pushback means adding new things to our Nodesreco array
+                Nodesreco.push_back(NewNode);
+            }
+                        
+            // Build the tree from the single-particle nodes
+            BuildCATree(Nodesreco);
+            Node *SDNodereco = nullptr ; // starting fro null. Particle in the jet must be greater than zero
+            if (Nodesreco.size() >0) {
+                // grooming
+                SDNodereco =   FindSDNodeE(Nodesreco[0], .1 , 0, 0.4 );
+                
+            }
+            
+            
+            if (SDNodereco && SDNodereco->Child1 && SDNodereco->Child2) {
+                double PT1 = SDNodereco->Child1->P[0];
+                double PT2 = SDNodereco->Child2->P[0];
+                double ZGDatareco =std::min(PT1,PT2) / (PT1 + PT2);
+                double EDatareco= Nodesreco[0]->P[0]; // Total energy of the jet
+                // Fill histograms based on jet energy
+                
+                RecoData.emplace_back(Jet(jtptDataReco[j]* f_factor, jtetaDataReco[j],  jtphiDataReco[j], E_Datareco, ZGDatareco ));
+                
+            }
+            //fill hist
+            else
+                RecoData.emplace_back(Jet(jtptDataReco[j]* f_factor, jtetaDataReco[j],  jtphiDataReco[j], E_Datareco, -1 ));
+            
+        }
+        
+        
+        // mappping gen and reco jets- collection of pairs
         map<int, int> Match = MatchJetsHungarian(&Metric, Gen, Reco);
         
         
-        
+        vector <bool> Exist(Reco.size(), false);
         
         for(auto m : Match) {
             // angle between the already matched gen and reco jet, calling back metric function, thats why its in the loop
-            if (m.first<0 || m.second<0 )
-                continue ;
-            double angle =   Metric ( Gen[m.first] , Reco[m.second] );
-            
-            
-            Angle[0]->Fill(angle);
-            
-            if (angle < 0.4 )
-            {   correlation[0]-> Fill(Gen[m.first].E, Reco[m.second].E ) ;
+            if (m.first >= 0 && m.second > 0 ) {
                 
-                correlation[1]-> Fill(Gen[m.first].ZG, Reco[m.second].ZG) ;
+                Exist[m.second]= true; //this is to check if m.second is matched
                 
-                // Loop over energy bins
-                double genE = Gen[m.first].E;
-                 double recoE = Reco[m.second].E;
-                 double zgGen = Gen[m.first].ZG;
-                 double zgReco = Reco[m.second].ZG;
-
-                 // Loop over all energy bin pairs to find the correct histogram
-                 for (size_t i = 0; i < energyBins.size() - 1; ++i) {
-                     for (size_t j = 0; j < energyBins.size() - 1; ++j) {
-                         if (genE >= energyBins[j] && genE < energyBins[j + 1] &&
-                             recoE >= energyBins[i] && recoE < energyBins[i + 1]) {
-                             EZGMatrix[i][j]->Fill(zgReco, zgGen); // Fill the appropriate histogram
-                             break;
-                         }
+                double angle =   Metric ( Gen[m.first] , Reco[m.second] );
+                 
+                Angle[0]->Fill(angle);
+                
+                if (angle < 0.4 )
+                {   correlation[0]-> Fill(Gen[m.first].E, Reco[m.second].E ) ;
+                    
+                    correlation[1]-> Fill(Gen[m.first].ZG, Reco[m.second].ZG) ;
+                    
+                    
+                    // Loop over energy bins
+                    double genE = Gen[m.first].E;
+                    double recoE = Reco[m.second].E;
+                    double zgGen = Gen[m.first].ZG;
+                    double zgReco = Reco[m.second].ZG;
+                    
+                    RealRecoJetsE->Fill (Reco[m.second].E);
+                    // Loop over energy bins
+                    
+                    double DatarecoE = RecoData[m.second].E;
+                    
+                    double zgDataReco = RecoData[m.second].ZG;
+                    
+                    
+                    
+                    // Loop over all energy bin pairs to find the correct histogram
+                    for (size_t i = 0; i < energyBins.size() - 1; ++i) {
+                        for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+                            if (genE >= energyBins[j] && genE < energyBins[j + 1] &&
+                                recoE >= energyBins[i] && recoE < energyBins[i + 1]) {
+                                EZGMatrix[i][j]->Fill(zgReco, zgGen); // Fill the appropriate histogram
+                                
+                                cout << zgGen << " zg gen"<< endl;
+                                cout << zgReco << " zg reco " << endl;
+                                cout << EZGMatrix.size() << "matrix size" << endl;
+                            }
+                            
                         }
+                    }
+                    
+                    
+                    
+                    for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+                        if (recoE >= energyBins[j] && recoE < energyBins[j + 1]) {
+                            ZGreco[j]->Fill( zgReco); // Fill the appropriate histogram
+                            
+                            
+                            
+                        }
+                        
+                    }
+                    
+                    
+                    
+                    for (size_t j = 0; j < energyBins.size() - 1; ++j) {
+                        if (genE >= energyBins[j] && genE < energyBins[j + 1]) {
+                            ZGgen[j]->Fill( zgGen); // Fill the appropriate histogram
+                            
+                        }
+                        
+                    }
+                    
+                }
+                
+            }// if statement
+            
+            //gatering unmatced
+            else {
+                
+                if (m.second <= 0  )
+                    
+                    
+                    //unmatchedGen.push_back( Gen[m.first] ) ;
+                    
+                    for ( int i = 0; i < Gen.size(); ++i) {
+                        if( Exist[i]== false)
+                            
+                            
+                            //  FakeRecoJet.push_back( Reco[i].E) ;
+                            
+                            UnmatchedGen-> Fill( Gen[m.first].E);
+                        
                     }
                 
             }
             
         }
+        for ( int i = 0; i < Reco.size(); ++i) {
+            if( Exist[i]== false)
+                // FakeRecoJet.push_back( Reco[i].E) ;
+                
+                FakeRecoJetsE-> Fill (Reco[i].E);
+            
+        }
+      
         
     }
+    //tranferring hist data
+    for (size_t i = 0; i < numEnergyRanges; ++i) { // Loop over energy bins
+        for (size_t j = 0; j < numBinsPerRange; ++j) { // Loop over ZG bins
+            for (size_t k = 0; k < numBinsPerRange; ++k) { // Loop over ZG bins in Y
+                for (size_t l=0; l< numEnergyRanges; ++l){
+                    
+                    // Map bin j in range i to global bin k
+                    int globalX = j + i * numBinsPerRange;
+                    int globalY = k + l * numBinsPerRange;
+                    
+                    // Get bin content from the small histogram
+                    double binContent = EZGMatrix[i][l]->GetBinContent(j,k);
+                    cout << binContent << " GetBinContent(k)" << endl ;
+                    
+                    // Fill the big histogram
+                    SmearingMatrix->SetBinContent(globalX, globalY, binContent);
+                    
+                }
+            }
+        }
+    }
+    
+    
+    
+    for (size_t i = 0; i < numEnergyRanges; ++i) { // Loop over energy bins
+        for (size_t j = 0; j < numBinsPerRange; ++j) { // Loop over ZG bins
+            
+            // Map bin j in range i to global bin k
+            int globalX = j + i * numBinsPerRange;
+            
+            
+            // Get bin content from the small histogram
+            double binContent = ZGreco[i]->GetBinContent(j);
+            cout << binContent << " GetBinContent(k)" << endl ;
+            
+            // Fill the big histogram
+            SmearingZGrecoMatrix->SetBinContent(globalX, binContent);
+            
+            
+        }
+    }
+        
+    for (size_t i = 0; i < numEnergyRanges; ++i) { // Loop over energy bins
+        for (size_t j = 0; j < numBinsPerRange; ++j) { // Loop over ZG bins
+            
+            // Map bin j in range i to global bin k
+            int globalX = j + i * numBinsPerRange;
+            
+            
+            // Get bin content from the small histogram
+            double binContent = ZGgen[i]->GetBinContent(j);
+            cout << binContent << " GetBinContent(k)" << endl ;
+            
+            // Fill the big histogram
+            SmearingZGgenMatrix->SetBinContent(globalX, binContent);
+            
+        }
+    }
+    
+    
+    input1->Close();
+    
+    std::string outFileName = "output.root";  // Ensure the filename is valid
+    
+    std::cout << "Attempting to open ROOT file: " << outFileName << std::endl;
+    
+    TFile *outHistFile = TFile::Open(outFileName.c_str(), "RECREATE");
+    
+    // Check if file opened successfully
+    if (!outHistFile || outHistFile->IsZombie()) {
+        std::cerr << "Error: Could not create output file " << outFileName << std::endl;
+        return 1;  // Avoid segfault
+    }
+    
+    std::cout << "File opened successfully!" << std::endl;
+    
+    
+    // Check before writing to avoid segfault
+    if (SmearingZGgenMatrix) {
+        SmearingZGgenMatrix->Write();
+    } else {
+        std::cerr << "Error: SmearingZGgenMatrix is nullptr!" << std::endl;
+    }
+    
+    if (SmearingZGrecoMatrix) {
+        SmearingZGrecoMatrix->Write();
+    } else {
+        std::cerr << "Error: SmearingZGrecoMatrix is nullptr!" << std::endl;
+    }
+    
+    if (SmearingMatrix) {
+        SmearingMatrix->Write();
+    } else {
+        std::cerr << "Error: SmearingMatrix is nullptr!" << std::endl;
+    }
+    
+    outHistFile->Close();
     
     TCanvas *canvas1 = new TCanvas("canvas1", "Gen Reco angle", 1600, 1200);
     
     canvas1->Divide(2, 2);
     
     canvas1->cd(1);
-    Angle[0]->Draw();
-    canvas1->cd(1)->SetLogy();
-    
+    SmearingZGgenMatrix->Draw();
+    canvas1->cd(1)->SetLogz();
     
     canvas1->cd(2);
-    correlation[1]->Draw();
+    SmearingZGrecoMatrix->Draw();
     canvas1->cd(2)->SetLogz();
-    
-    
-    
+       
     canvas1->cd(3);
     correlation[0]->Draw();
     canvas1->cd(3)->SetLogz();
     
-    // Optional TGraph usage
-    TGraph G;
-    G.SetPoint(0, 0, 0);
-    G.SetPoint(1, 100, 100);
-    
-    
     canvas1->SaveAs("Gen_Reco_angle_Distribution.pdf");
-    
-    
-    // Create a canvas for the matrix plot
+        
     TCanvas *canvas_matrix = new TCanvas("canvas_matrix", "Smearing Matrix", 2000, 2000);
-    size_t nRows = energyBins.size() - 1; // Number of energy bins
-    size_t nCols = energyBins.size() - 1;
-    canvas_matrix->Divide(nCols, nRows); // Create a grid layout (12x12, for example)
-   
-    canvas_matrix->SetFixedAspectRatio(); // Ensures square proportions
-
-    double padSize = 0.90 / nCols; // Each pad's relative size in the canvas
-    std::vector<std::vector<TPad*>> Pads; // Store pads for manual layout
-
-    // Create tightly packed pads
-    for (size_t i = 0; i < nRows; ++i) {
-        std::vector<TPad*> row;
-        for (size_t j = 0; j < nCols; ++j) {
-            TString padName = Form("pad_%lu_%lu", i, j);
-            double xLow = j * padSize;
-            double xHigh = (j + 1) * padSize;
-            double yLow = i * padSize; // Flip y-axis
-            double yHigh =(i + 1) * padSize;
-
-            TPad *pad = new TPad(padName, "", xLow, yLow, xHigh, yHigh);
-            pad->SetMargin(0.01, 0.01, 0.01, 0.01); // Remove space
-            pad->Draw();
-            row.push_back(pad);
-        }
-        Pads.push_back(row);
-    }
-    // Enable color palette
-   // gStyle->SetPalette(55);   // Alternative: 55 (kRainBow), 57 (kViridis)
-    gStyle->SetOptStat(0);    // Disable stats boxes
-
-    // Draw histograms inside each pad
-    for (size_t i = 0; i < nRows; ++i) {
-        for (size_t j = 0; j < nCols; ++j) {
-            Pads[i][j]->cd();
-            EZGMatrix[i][j]->SetTitle(""); // Remove title
-            EZGMatrix[i][j]->Draw("COLZ");
-            gPad->SetLogz(); // Optional log scale
-
-            // X-axis labels only for bottom row
-            if (i == nRows - 1)
-                EZGMatrix[i][j]->GetXaxis()->SetTitle("Reco Energy ZG");
-            else
-                EZGMatrix[i][j]->GetXaxis()->SetLabelSize(0);
-
-            // Y-axis labels only for leftmost column
-            if (j == 0)
-                EZGMatrix[i][j]->GetYaxis()->SetTitle("Gen Energy ZG");
-            else
-                EZGMatrix[i][j]->GetYaxis()->SetLabelSize(0);
-            
-            EZGMatrix[i][j]->SetStats(0); // Disable stats box
-
-        }
-    }
-
-    // Save the properly formatted matrix
-    canvas_matrix->SaveAs("SmearingMatrix_Fixed.pdf");
-
-  
-
-
+    
+    gStyle->SetPalette(55); // Use a nice color palette
+    gStyle->SetOptStat(0);
+    
+    SmearingMatrix->Draw("COLZ");
+    gPad->SetLogz(); // Optional log scale
+    
+    
+    TCanvas *canvas3 = new TCanvas("canvas3", "Gen Reco Energy", 1600, 1200);
+    
+    canvas3->Divide(2, 2);
+    
+    canvas3->cd(1);
+    FakeRecoJetsE->Draw();
+    
+    canvas3->cd(1)->SetLogz();
+    
+    
+    canvas3->cd(2);
+    UnmatchedGen->Draw();
+    canvas3->cd(2)->SetLogz();
+    
+    
+    
+    canvas3->cd(3);
+    RealRecoJetsE->Draw();
+    canvas3->cd(3)->SetLogz();
+    
+    canvas3->SaveAs("Gen_Reco_energy.pdf");
+    
     // Save the canvas as a PDF
     canvas_matrix->SaveAs("EnergyCorrelationMatrix.pdf");
-
     
     
     input1->Close();

@@ -152,8 +152,8 @@ int main()
                 Node *Current = HeadNode;
                 Node *bestNode = HeadNode;
                 
-                double besthard = 0; //
-                double jetPT= HeadNode->P[0];
+                double besthard = 0;
+                double jetPT= HeadNode->P[0]; //Total jet momentum is the first cluster momentum 
                 
                 while(Done == false)
                 {

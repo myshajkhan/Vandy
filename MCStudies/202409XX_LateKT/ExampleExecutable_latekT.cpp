@@ -1,10 +1,11 @@
 #include <vector>
-using namespace std;
-
-
-#include "CATree.h"
-#include "TFile.h"
 #include <string>
+#include <cmath>
+#include <iostream>
+#include <vector>
+
+#include "TFile.h"
+#include "TLorentzVector.h"
 #include "TH1F.h"
 #include "TChain.h"
 #include "TTree.h"
@@ -18,27 +19,27 @@ using namespace std;
 #include "TObject.h"
 #include "TBranch.h"
 #include "TCanvas.h"
-#include <cmath>
-#include <iostream>
-#include <vector>
-#include "TLorentzVector.h"
+
+#include "CATree.h"
 
 #define maxJets 24000
 
+using namespace std;
 
 int main()
 {
-    // Define histograms
+    //Define histograms for Jet energy
     vector<TH1F*> hists;
-    hists.push_back(new TH1F("hist1", "30 < Jet E < 35", 100, 0, 5));
-    hists.push_back(new TH1F("hist2", "35 < Jet E < 40", 100, 0, 5));
-    hists.push_back(new TH1F("hist3", "40 < Jet E", 100, 0, 5));
-    hists.push_back(new TH1F("hist4", "10 < Jet E < 15", 100, 0, 5));
-    hists.push_back(new TH1F("hist5", "15 < Jet E < 20", 100, 0, 5));
-    hists.push_back(new TH1F("hist6", "20 < Jet E < 25", 100, 0, 5));
-    hists.push_back(new TH1F("hist7", "25 < Jet E < 30", 100, 0, 5));
+
+    hists.push_back(new TH1F("hist1", "10 < Jet E < 15", 100, 0, 5));
+    hists.push_back(new TH1F("hist2", "15 < Jet E < 20", 100, 0, 5));
+    hists.push_back(new TH1F("hist3", "20 < Jet E < 25", 100, 0, 5));
+    hists.push_back(new TH1F("hist4", "25 < Jet E < 30", 100, 0, 5));
+    hists.push_back(new TH1F("hist5", "30 < Jet E < 35", 100, 0, 5));
+    hists.push_back(new TH1F("hist6", "35 < Jet E < 40", 100, 0, 5));
+    hists.push_back(new TH1F("hist7", "40 < Jet E", 100, 0, 5));
     
-    
+    //Define histogram for jet
     vector<TH1F*> angle;
     angle.push_back(new TH1F("angle1", "30 < Jet E < 35", 100, 0, .4));
     angle.push_back(new TH1F("angle2", "35 < Jet E < 40", 100, 0, .4));
@@ -48,19 +49,15 @@ int main()
     angle.push_back(new TH1F("angle6", "20 < Jet E < 25", 100, 0, .4));
     angle.push_back(new TH1F("angle7", "25 < Jet E < 30", 100, 0, .4));
     
-    
     vector<TH1F*> hard;
     hard.push_back(new TH1F("hardnessHist_b01", "Hardness Distribution b=0.1", 100, 0, 1.0));
     hard.push_back(new TH1F("hardnessHist_b1", "Hardness Distribution b=1", 100, 0, 1.0));
     hard.push_back(new TH1F("hardnessHist_b2", "Hardness Distribution b=2", 100, 0, 1.0));
-
-
-    
+  
     // Open the input file
     TFile *input1 = TFile::Open("./LEP1MC1994_recons_aftercut-002.root", "READ");
-    /// change it to the
-    
-    
+  
+
     if (!input1 || input1->IsZombie()) {
         cerr << "Error: Could not open input file." << endl;
         return 1;
