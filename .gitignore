@@ -1,7 +1,4 @@
 *.root
-*.txt
-*.csv
-*.pdf
-output/
-data/
+.DS_Store
+*.dSYM/
 
