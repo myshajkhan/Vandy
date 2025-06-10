@@ -1,5 +1,5 @@
 
-default: DetEf
+default: Dynamic
 
 objects: CATree.o DrawRandom.o DrawRandom2.o TauHelperFunctions3.o
 
@@ -20,8 +20,8 @@ Execute: ExampleExecutable_latekT.cpp objects
 		CATree.o DrawRandom.o DrawRandom2.o TauHelperFunctions3.o \
 		`root-config --cflags --libs` -g
 
-GroomingDynamic: ExampleExecutable_dynamic_grooming.cpp objects
-	g++ ExampleExecutable_dynamic_grooming.cpp -o GroomingDynamic -std=c++11 \
+GroomingDynamic: Grooming_Dynamic.cpp DynamicGrooming.h objects
+	g++ Grooming_Dynamic.cpp -o GroomingDynamic -std=c++11 \
 		CATree.o DrawRandom.o DrawRandom2.o TauHelperFunctions3.o \
 		`root-config --cflags --libs` -g
 
