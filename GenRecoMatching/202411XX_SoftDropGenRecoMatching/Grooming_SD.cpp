@@ -18,8 +18,7 @@
 #include "TObject.h"
 #include "TBranch.h"
 #include "TCanvas.h"
-
-#include "DynamicGrooming.h"
+#include "SoftDropGrooming.h"
 
 #define maxJets 24000
 
@@ -94,6 +93,7 @@ int main()
         
         //This loop will go through each jet so that we can look inside each jet
         for (int k =0 ; k < nref; ++k) {
+            
             if (jtpt[k] <= 0) continue; // Skip invalid entries
             
             //Getting px,py,pz and E for creating each jet
@@ -140,18 +140,15 @@ int main()
             //Using BuildCATree to connect nodes to each other and make a tree
             BuildCATree(Nodes);
             
-            //Dynamic Grooming Funtion from it's header file
+            //Soft drop Grooming Funtion from it's header file
             if (!Nodes.empty()) {
-                Node *SDNode = DynamicGrooming(Nodes[0], 0.1, 1.0,0.4);
+                Node *SDNode = SoftDrop(Nodes[0], 0.1, 0.0,0.4);
                 
                 if (SDNode && SDNode->Child1 && SDNode->Child2) {
-                    double PT1 = SDNode->Child1->P[0]; //Transverse momentum of child 1
-                    double PT2 = SDNode->Child2->P[0]; //Transverse momentum of child 2
-                    double ZG = PT2 / (PT1 + PT2); //Fracional transverse momentum
+                    double PT1 = SDNode->Child1->P[0]; //Momentum of child 1
+                    double PT2 = SDNode->Child2->P[0]; //Momentum of child 2
+                    double ZG = std::min(PT1,PT2) / (PT1 + PT2); //Fractional momentum
                     double E = Nodes[0]->P[0]; // Total energy of the jet
-                    double Angle = GetAngle(SDNode->Child1->P, SDNode->Child2->P);   // we have the angle, this is theta(i) for dynamic grooming
-                    double hardness= ZG*(1-ZG) *(PT1+PT2)*pow(Angle/0.4 ,1 );
-                    double kappa = (1/E)*hardness; //Dynamic gromming original formula
                     
                     // Fill histograms based on jet energy
                     if (E >= 10 && E < 15) hists[0]->Fill(ZG);
@@ -162,17 +159,7 @@ int main()
                     else if (E >= 35 && E < 40) hists[5]->Fill(ZG);
                     else if (E >= 40) hists[6]->Fill(ZG);
                     
-                    // Fill histograms based on the jet energy range or hardness distribution
-                    if (E >= 30 && E  < 35) {
-                        hard[0]->Fill(kappa);
-                    }
-                    else if (E  >= 35 && E  < 40) {
-                        hard[1]->Fill(kappa);
-                    }
-                    else if (E >= 40) {
-                        hard[2]->Fill(kappa);
-                    }
-                    cout << " PT1 = " << PT1 << ", PT2 = " << PT2 << ", ZG = " << ZG << endl;
+                    cout << "Soft drop parameters: PT1 = " << PT1 << ", PT2 = " << PT2 << ", ZG = " << ZG << endl;
                 } else {
                     cerr << "Error: SDNode or its children are null." << endl;
                     if (!SDNode) {
@@ -203,19 +190,8 @@ int main()
         hists[i]->Draw();
     }
     
-    // Create canvas and plot hardness distribution
-    TCanvas *c2 = new TCanvas("c2", "Jet Hardness Distribution", 1600, 1200);
-    c2->Divide(2, 2);  // Divide based on how many histograms you have
-    
-    //Draw Histograms for Hardness distribition
-    for (int i = 0; i < 3; ++i) {
-        c2->cd(i + 1)->SetLogx();
-        hard[i]->Draw();
-    }
-    
     //Saving the canvases
-    c1->SaveAs("JetZG_Distribution.pdf");
-    c2->SaveAs("JetHardness_Distribution.pdf");
+    c1->SaveAs("SoftDrop_JetZG_Distribution.pdf");
     
     // Clean up
     for (TH1F* hist : hists) {

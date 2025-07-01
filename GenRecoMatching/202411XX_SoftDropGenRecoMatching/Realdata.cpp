@@ -64,24 +64,23 @@ double Metric(Jet Gen, Jet Reco)
 }
 
 int main()
-
 {
+    
     // Declaring vectors( Gen, reco) that will hold all the generated objects that carry the structure (Jet , TH1F, TH2F)
     vector<Jet> Gen;
     vector<Jet> Reco;
     vector<Jet> RecoData;
-    
-    vector<TH1F*> Angle;
-    vector < TH2F*> correlation;
-    vector <TH2F*> EZG;
-    vector <TH1F*> ZGreco;
     vector<FourVector> Particles;
+    vector<TH1F*> Angle;
+    vector <TH1F*> ZGreco;
     vector <TH1F*> ZGgen;
     vector <TH1F*> ZGDatareco;
-    
+    vector < TH2F*> correlation;
+    vector <TH2F*> EZG;
     
     int numBinsPerRange = 100; // Assuming 100 bins per ZG axis
-    // Open the input file
+    
+   
     
     std::vector<double> energyBins = {0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55};
     
@@ -132,12 +131,14 @@ int main()
     
     TH1F *SmearingZGDatarecoMatrix = new TH1F("SmearZG_Datareco", "DataRecoZG", numBinsPerRange * numEnergyRanges, 0, numBinsPerRange * numEnergyRanges);
     
+
     
     TH1F *RealRecoJetsE = new TH1F("RealRecoJetsenergy", "Real Reco Jets Energy", 100, 0, 10);
     
-        
+    // Open the input file
     TFile *input1 = TFile::Open("./LEP1MC1994_recons_aftercut-002.root", "READ");
     TFile *input2 = TFile::Open("./LEP1Data1994P3_recons_aftercut-MERGED.root", "READ");
+    
     if (!input1 || input1->IsZombie()) {
         cerr << "Error: Could not open input file." << endl;
         return 1;
@@ -148,15 +149,11 @@ int main()
     TTree *Tree6= (TTree *)input2->Get("t");
     
     // Set branch addresses
-   // Float_t jtptReco[maxJets], jtphiReco[maxJets], jtetaReco[maxJets], jtptGen[maxJets], jtphiGen[maxJets], jtetaGen[maxJets],  jtmGen[maxJets],  jtmReco[maxJets], ptGen[maxJets], phiGen[maxJets], etaGen[maxJets], massGen[maxJets], ptReco[maxJets], phiReco[maxJets],etaReco[maxJets], massReco[maxJets];
-    
-    
-    //for input 2
     Float_t jtptDataReco[maxJets], jtphiDataReco[maxJets], jtetaDataReco[maxJets],   jtmDataReco[maxJets], ptDataReco[maxJets], phiDataReco[maxJets],etaDataReco[maxJets], massDataReco[maxJets];
     
     // in qoutes is the actual branch name in the data file
     Int_t nrefDataReco, nParticleDataReco ;
-        
+    
     Tree5->SetBranchAddress("jtpt", jtptDataReco);
     Tree5->SetBranchAddress("jtphi", jtphiDataReco);
     Tree5->SetBranchAddress("jteta", jtetaDataReco);
@@ -175,16 +172,16 @@ int main()
     // Loop over events and match generated and reconstructed jets
     //simulation loop
     Long64_t nEntries = (Tree5->GetEntries() )*fraction;
-        
+    
     //progress bar stuff
     // Set it print to cout, with max progress is MaxNumber
     ProgressBar Bar(cout, nEntries);
-   
+    
     Bar.SetStyle(6);  // Set style
     
-   for (Long64_t i = 0; i < nEntries; ++i) {
-       //  for (Long64_t i = 0; i < 1000; ++i) {
-       
+    for (Long64_t i = 0; i < nEntries; ++i) {
+        //  for (Long64_t i = 0; i < 1000; ++i) {
+        
         Reco.clear();
         Particles.clear();
         
@@ -265,7 +262,6 @@ int main()
                 Nodesreco.push_back(NewNode);
             }
             
-            
             // Build the tree from the single-particle nodes
             BuildCATree(Nodesreco);
             Node *SDNodereco = nullptr ; // starting fro null. Particle in the jet must be greater than zero
@@ -274,7 +270,6 @@ int main()
                 SDNodereco =   FindSDNodeE(Nodesreco[0], .1 , 0, 0.4 );
                 
             }
-            
             
             if (SDNodereco && SDNodereco->Child1 && SDNodereco->Child2) {
                 double PT1 = SDNodereco->Child1->P[0];
@@ -287,122 +282,28 @@ int main()
                 
                 
                 Reco.emplace_back(Jet(jtptDataReco[j]* f_factor, jtetaDataReco[j],  jtphiDataReco[j], CorrectedEnergy , ZGreco ));
-                
-                
+              
             }
             //fill hist
             else
                 Reco.emplace_back(Jet(jtptDataReco[j]* f_factor, jtetaDataReco[j],  jtphiDataReco[j], CorrectedEnergy , -1 ));
             
         }
-        
-        //Data reconstrution
-        for (int j = 0; j < nrefDataReco; ++j)  {
-            Particles.clear();
-            //node vector decleration for particle tree creation
-            vector<Node *> Nodesreco;
-            
-            //E= p^2  + m^2, we need this for energy correction
-            
-            double pDataReco= jtptDataReco[j] * cosh(jtetaDataReco[j]);
-            double E_Datareco = sqrt(pDataReco*pDataReco + jtmDataReco[j] * jtmDataReco[j]) ;
-            
-            // eta = -ln tan(theta /2)
-            
-            double theta = 2*atan( exp (-jtetaDataReco[j]));
-            
-            // MJ: There is this energy correction
-            // energy correction
-            JEC.SetJetE(E_Datareco);
-            JEC.SetJetTheta(theta);
-            JEC.SetJetPhi(jtphiDataReco[j]);
-            
-            //getting the corrected energy
-            double CorrectedEnergy = JEC.GetCorrectedE();
-            
-            double f_factor = CorrectedEnergy / E_Datareco ;
-            
-            
-            // loop for particle in the gen jet
-            for ( int k= 0; k< nParticleDataReco ; ++k)
-                
-            {
-                if (jtptDataReco[j] <= 0) continue; // Skip invalid entries
-                
-                
-                double px = jtptDataReco[j] * cos(jtphiDataReco[j]);
-                double py = jtptDataReco[j] * sin(jtphiDataReco[j]);
-                double pz = jtptDataReco[j] * sinh(jtetaDataReco[j]);
-                double p = jtptDataReco[j] * cosh(jtetaDataReco[j]);
-                double E = sqrt((p * p) + (jtmDataReco[j] * jtmDataReco[j])); // Simplified for massless particles
-                
-                double parpx = ptDataReco[k] * cos(phiDataReco[k]);
-                double parpy = ptDataReco[k] * sin(phiDataReco[k]);
-                double parpz = ptDataReco[k] * sinh(etaDataReco[k]);
-                double parp = ptDataReco[k] * cosh(etaDataReco[k]);
-                double parE = sqrt((parp * parp) + (massDataReco[k] * massDataReco[k]));
-                
-                // Particles.push_back(FourVector(E, px, py, pz));
-                
-                //why am i not declaring like vector<FourVector> jetmom;
-                FourVector jetmom(E, px, py, pz);
-                FourVector par(parE, parpx, parpy, parpz);
-                
-                double Distance = GetAngle(jetmom, par);
-                
-                if (Distance <= 0.4) {
-                    Particles.push_back(par);
-                    
-                }
-                
-            }
-            
-            //Creating nodes for particle
-            for (size_t iP = 0; iP < Particles.size(); ++iP) {
-                
-                Node *NewNode = new Node(Particles[iP]);
-                // pushback means adding new things to our Nodesreco array
-                Nodesreco.push_back(NewNode);
-            }
-            
-            
-            // Build the tree from the single-particle nodes
-            BuildCATree(Nodesreco);
-            Node *SDNodereco = nullptr ; // starting fro null. Particle in the jet must be greater than zero
-            if (Nodesreco.size() >0) {
-                // grooming
-                SDNodereco =   FindSDNodeE(Nodesreco[0], .1 , 0, 0.4 );
-                
-            }
-            
-            
-            if (SDNodereco && SDNodereco->Child1 && SDNodereco->Child2) {
-                double PT1 = SDNodereco->Child1->P[0];
-                double PT2 = SDNodereco->Child2->P[0];
-                double ZGDatareco =std::min(PT1,PT2) / (PT1 + PT2);
-                double EDatareco= Nodesreco[0]->P[0]; // Total energy of the jet
-                // Fill histograms based on jet energy
-                
-                
-                RecoData.emplace_back(Jet(jtptDataReco[j]* f_factor, jtetaDataReco[j],  jtphiDataReco[j], E_Datareco, ZGDatareco ));
-                
-            }
-            //fill hist
-            else
-                RecoData.emplace_back(Jet(jtptDataReco[j]* f_factor, jtetaDataReco[j],  jtphiDataReco[j], E_Datareco, -1 ));
-            
-        }
-        
- 
         // Loop over energy bins
+        cout << " energyBins.size() " << energyBins.size() << endl;
+        cout << " RecoData.size() " << RecoData.size() << endl;
+        
         for (size_t n = 0; n < energyBins.size() - 1; ++n) {
             
             // Loop over all reconstructed jets from data
-            for (size_t m = 0; m < RecoData.size(); ++m) {
+            for (size_t m = 0; m < Reco.size(); ++m) {
                 
                 // Get the energy and ZG value of the current jet
-                double EDatareco = RecoData[m].E;
-                double zgReco = RecoData[m].ZG;
+                double EDatareco = Reco[m].E;
+                double zgReco = Reco[m].ZG;
+               
+                cout << "ZG Reco Data" << zgReco << endl;
+                cout << "Energy " << EDatareco << endl;
                 
                 // Skip jets where grooming failed (ZG = -1)
                 if (zgReco < 0) continue;
@@ -423,24 +324,21 @@ int main()
     Bar.Print();
     Bar.PrintLine();
     
-      
+    
     for (size_t i = 0; i < numEnergyRanges; ++i) { // Loop over energy bins
         for (size_t j = 0; j < numBinsPerRange; ++j) { // Loop over ZG bins
             
             // Map bin j in range i to global bin k
             int globalX = j + i * numBinsPerRange;
-            
-            
-            // Get bin content from the small histogram
+             // Get bin content from the small histogram
             double binContent = ZGDatareco[i]->GetBinContent(j);
             cout << binContent << " GetBinContent(k)" << endl ;
-            
             // Fill the big histogram
             SmearingZGDatarecoMatrix->SetBinContent(globalX, binContent);
             
         }
     }
-        
+    
     std::string outFileName = "Real_data.root";  // Ensure the filename is valid
     
     std::cout << "Attempting to open ROOT file: " << outFileName << std::endl;
@@ -460,7 +358,7 @@ int main()
         std::cerr << "Error: SmearingZGDatarecoMatrix is nullptr!" << std::endl;
     }
     std::cout << "File opened successfully!" << std::endl;
-        
+    
     outHistFile->Close();
     
     TCanvas *canvas3 = new TCanvas("canvas3", "Gen Reco Energy", 1600, 1200);

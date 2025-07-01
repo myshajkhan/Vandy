@@ -13,11 +13,11 @@ using namespace std;
 #include "TCanvas.h"
 #include "TGraph.h"
 #include "TLorentzVector.h"
-#include "TStyle.h"  // Required for gStyle
+#include "TStyle.h"
 
 #include "JetCorrector.h"
 #include "Matching.h"
-#include "grooming.h"
+#include "SoftDropGrooming.h"
 #define maxJets 2400
 
 // We are creating construction fuction "Jet".
@@ -165,7 +165,6 @@ int main()
     Float_t ptReco[maxJets], phiReco[maxJets],etaReco[maxJets], massReco[maxJets]; //MC particle level arrays for reco jets
     Float_t ptGen[maxJets], phiGen[maxJets], etaGen[maxJets], massGen[maxJets]; //MC particle level arrays for gen jets
     
-    
     // Arrays for jet-level quantities for jet and particles from input 2
     Float_t jtptDataReco[maxJets], jtphiDataReco[maxJets], jtetaDataReco[maxJets],  jtmDataReco[maxJets]; //Data Jet level arrays for reco jets
     Float_t ptDataReco[maxJets], phiDataReco[maxJets],etaDataReco[maxJets], massDataReco[maxJets]; //Data particle level arrays for reco jets
@@ -219,124 +218,102 @@ int main()
     // Loop over events and match generated and reconstructed jets
     Long64_t nEntries = min(Tree1->GetEntries(), Tree2->GetEntries() );
     for (Long64_t i = 0; i < nEntries; ++i) {
-        // for (Long64_t i = 0; i < 1000; ++i) {
+        
+        Tree1->GetEntry(i); //Reconstructed jet tree from MC simulation
+        Tree2->GetEntry(i); //Generated jet tree from MC simulation (truth-level jets)
+        Tree3->GetEntry(i); //Particle-level information for reconstructed MC jets
+        Tree4->GetEntry(i); //Particle-level information for generated MC jets (truth constituents)
+        Tree5->GetEntry(i); //Reconstructed jet tree from real experimental data
+        Tree6->GetEntry(i); //Reconstructed data jets
         Gen.clear() ;
         Reco.clear();
         FakeRecoJet.clear();
         unmatchedGen.clear();
         Particles.clear();
-        Tree1->GetEntry(i);
-        Tree2->GetEntry(i);
-        Tree3->GetEntry(i);
-        Tree4->GetEntry(i);
-        Tree5->GetEntry(i);
-        Tree6->GetEntry(i);
-     
-        // creating gen jet vector with their pT eta phi
+        
+        // Creating gen jet vector with their pT eta phi
         for (int j = 0; j < nrefGen; ++j) {
             
-            Particles.clear();
-            vector<Node *> Nodesgen;
-            //E= p^2  + m^2, we need this for energy correction
+            if (jtptGen[j] <= 0) continue; // Skip invalid entries
             
+            //Getting px,py,pz and E for creating each jet
+            double px = jtptGen[j] * cos(jtphiGen[j]);
+            double py = jtptGen[j] * sin(jtphiGen[j]);
+            double pz = jtptGen[j] * sinh(jtetaGen[j]);
             double pGen= jtptGen[j] * cosh(jtetaGen[j]);
             double E_gen = sqrt(pGen*pGen + jtmGen[j] * jtmGen[j]) ;
             
-            // loop for particle in the gen jet
+            //Creating individual Jet indentities. Jet is our object of type "four vector"
+            FourVector jetmom(E_gen, px, py, pz);
+            
+            Particles.clear(); // Cleaning particle vector to have new sets of particles for each jets
+            
+            // Loop for particle in the gen jet
             for ( int k= 0; k< nParticleGen ; ++k)
             {
-                
-                if (jtptGen[j] <= 0) continue; // Skip invalid entries
-                
-                
-                double px = jtptGen[j] * cos(jtphiGen[j]);
-                double py = jtptGen[j] * sin(jtphiGen[j]);
-                double pz = jtptGen[j] * sinh(jtetaGen[j]);
-                double p = jtptGen[j] * cosh(jtetaGen[j]);
-                double E = sqrt((p * p) + (jtmGen[j] * jtmGen[j])); // Simplified for massless particles
-                
+                //Getting px,py,pz and E for creating each particle
                 double parpx = ptGen[k] * cos(phiGen[k]);
                 double parpy = ptGen[k] * sin(phiGen[k]);
                 double parpz = ptGen[k] * sinh(etaGen[k]);
                 double parp = ptGen[k] * cosh(etaGen[k]);
                 double parE = sqrt((parp * parp) + (massGen[k] * massGen[k]));
                 
-                // Particles.push_back(FourVector(E, px, py, pz));
-                
-                //declaring four vector
-                FourVector jetmom(E, px, py, pz);
+                //Declaring Particle object (four vector)
                 FourVector par(parE, parpx, parpy, parpz);
                 
+                //Distance betwwen jet and each particle to see if the particle is close enough to belong in the jet
                 double Distance = GetAngle(jetmom, par);
                 
-                if (Distance <= 0.4) {
-                    Particles.push_back(par);
+                
+                if (Distance <= 0.4) { // if the particle fall under jet radius(.4) we push them in our particle vector
+                    Particles.push_back(par); //Filling Particle
                     
                 }
-                
-            }
-            // storing the result in gen vector
-            
-            // Convert particles to nodes
-            
-            for (size_t iP = 0; iP < Particles.size(); ++iP) {
-                Node *NewNode = new Node(Particles[iP]);
-                Nodesgen.push_back(NewNode);
             }
             
+            // Defining Nodes( for gen jet) array. Node * is a type of object thats like an arrow ( pointer) that connects one particle to other.
+            vector<Node *> Nodesgen;
             
+            for (size_t iP = 0; iP < Particles.size(); ++iP) { // We are going through each member of our particle array- the set of particles for each jet.
+                Node *NewNode = new Node(Particles[iP]); //Each particle is now considered a node. and can later be linked in the jet tree
+                Nodesgen.push_back(NewNode); //Putting the created Node in array
+            }
+                        
             // Build the tree from the single-particle nodes
             BuildCATree(Nodesgen);
-            //    cout << Nodesgen.size() << "size of nodesgen" << endl;
             
-            
-            // declare soft drop node
-            
-            Node *SDNodegen = nullptr ; // starting fro null. Particle in the jet must be greater than zero
-            if (Nodesgen.size() >0) {
-                // grooming
-                SDNodegen =   FindSDNodeE(Nodesgen[0],.1, 0, 0.4);
-                
+            Node *SDNodegen = nullptr ; // Starting from null. Particle in the jet must be greater than zero
+            if (Nodesgen.size() >0)
+            {
+               //Using soft drop grooming. if the jet is not empty, this is the delatration of our fuction (is already created in .h file)
+                SDNodegen =  SoftDrop(Nodesgen[0],.1, 0, 0.4);
             }
-            
-            //build the tree with all the collected partilcles in the loop
-            // zg calc
-            //    cout << SDNodegen << " SDnodegen" << endl;
-            
+
             if (SDNodegen && SDNodegen->Child1 && SDNodegen->Child2) {
-                double PT1 = SDNodegen->Child1->P[0];
-                double PT2 = SDNodegen->Child2->P[0];
-                double ZGgen = std::min(PT1,PT2) / (PT1 + PT2);
-                double Egen= Nodesgen[0]->P[0]; // Total energy of the jet
-                
-                cout<< "Egen gen " << Egen << endl;
+                double PT1 = SDNodegen->Child1->P[0]; //Transverse momentum of child 1
+                double PT2 = SDNodegen->Child2->P[0]; //Transverse momentum of child 1
+                double ZGgen = std::min(PT1,PT2) / (PT1 + PT2); //Fractional momentum of the children. Bigger the difference smaller the Z
                               
-                Gen.emplace_back(Jet(jtptGen[j], jtetaGen[j],  jtphiGen[j] , E_gen , ZGgen));
+                Gen.emplace_back(Jet(jtptGen[j], jtetaGen[j],  jtphiGen[j] , E_gen , ZGgen));// Creating the Gen jet objects for vector entries
             }
             
             else
                 
-                Gen.emplace_back(Jet(jtptGen[j], jtetaGen[j],  jtphiGen[j] , E_gen , -1));
+                Gen.emplace_back(Jet(jtptGen[j], jtetaGen[j],  jtphiGen[j] , E_gen , -1)); // If both child- two foward node is not present
             
         }
         
-      
         // Creating reco jet vector with their pT eta phi
         for (int j = 0; j < nrefReco; ++j) {
+            
             Particles.clear();
             //node vector decleration for particle tree creation
             vector<Node *> Nodesreco;
             
-            //E= p^2  + m^2, we need this for energy correction
-            
             double pReco= jtptReco[j] * cosh(jtetaReco[j]);
             double E_reco = sqrt(pReco*pReco + jtmReco[j] * jtmReco[j]) ;
-            
-            // eta = -ln tan(theta /2)
-            
             double theta = 2*atan( exp (-jtetaReco[j]));
             
-            // MJ: There is this energy correction
             // energy correction
             JEC.SetJetE(E_reco);
             JEC.SetJetTheta(theta);
@@ -344,16 +321,13 @@ int main()
             
             //getting the corrected energy
             double CorrectedEnergy = JEC.GetCorrectedE();
-            
             double f_factor = CorrectedEnergy / E_reco ;
-            
             
             // loop for particle in the gen jet
             for ( int k= 0; k< nParticleReco ; ++k)
                 
             {
                 if (jtptReco[j] <= 0) continue; // Skip invalid entries
-                
                 
                 double px = jtptReco[j] * cos(jtphiReco[j]);
                 double py = jtptReco[j] * sin(jtphiReco[j]);
@@ -382,7 +356,6 @@ int main()
                 
             }
             
-            
             //Creating nodes for particle
             for (size_t iP = 0; iP < Particles.size(); ++iP) {
                 
@@ -390,7 +363,6 @@ int main()
                 // pushback means adding new things to our Nodesreco array
                 Nodesreco.push_back(NewNode);
             }
-            
             
             // Build the tree from the single-particle nodes
             BuildCATree(Nodesreco);
@@ -401,7 +373,6 @@ int main()
                 
             }
             
-            
             if (SDNodereco && SDNodereco->Child1 && SDNodereco->Child2) {
                 double PT1 = SDNodereco->Child1->P[0];
                 double PT2 = SDNodereco->Child2->P[0];
@@ -409,10 +380,10 @@ int main()
                 double Ereco= Nodesreco[0]->P[0]; // Total energy of the jet
                 // Fill histograms based on jet energy
                 
-                
                 Reco.emplace_back(Jet(jtptReco[j]* f_factor, jtetaReco[j],  jtphiReco[j], E_reco, ZGreco ));
-                
+    
             }
+            
             //fill hist
             else
                 Reco.emplace_back(Jet(jtptReco[j]* f_factor, jtetaReco[j],  jtphiReco[j], E_reco, -1 ));
@@ -467,7 +438,7 @@ int main()
                 
                 // Particles.push_back(FourVector(E, px, py, pz));
                 
-                //why am i not declaring like vector<FourVector> jetmom;
+               
                 FourVector jetmom(E, px, py, pz);
                 FourVector par(parE, parpx, parpy, parpz);
                 
@@ -477,28 +448,25 @@ int main()
                     Particles.push_back(par);
                     
                 }
-                
             }
-            
             
             //Creating nodes for particle
             for (size_t iP = 0; iP < Particles.size(); ++iP) {
                 
-                Node *NewNode = new Node(Particles[iP]);
-                // pushback means adding new things to our Nodesreco array
-                Nodesreco.push_back(NewNode);
+                Node *NewNode = new Node(Particles[iP]); //Each particle is a node. CAtree algorithm with link the nodes togther and create tree
+                Nodesreco.push_back(NewNode);//Adding tthe new nodes(particle) to our Nodesreco array
             }
                         
-            // Build the tree from the single-particle nodes
+            // Build the tree from the single-particle nodes using the cambridge aachen algorithm
             BuildCATree(Nodesreco);
-            Node *SDNodereco = nullptr ; // starting fro null. Particle in the jet must be greater than zero
+            
+            Node *SDNodereco = nullptr ; // starting from null. Particle in the jet must be greater than zero
             if (Nodesreco.size() >0) {
                 // grooming
                 SDNodereco =   FindSDNodeE(Nodesreco[0], .1 , 0, 0.4 );
                 
             }
-            
-            
+        
             if (SDNodereco && SDNodereco->Child1 && SDNodereco->Child2) {
                 double PT1 = SDNodereco->Child1->P[0];
                 double PT2 = SDNodereco->Child2->P[0];
@@ -515,10 +483,8 @@ int main()
             
         }
         
-        
         // mappping gen and reco jets- collection of pairs
         map<int, int> Match = MatchJetsHungarian(&Metric, Gen, Reco);
-        
         
         vector <bool> Exist(Reco.size(), false);
         
@@ -551,8 +517,6 @@ int main()
                     
                     double zgDataReco = RecoData[m.second].ZG;
                     
-                    
-                    
                     // Loop over all energy bin pairs to find the correct histogram
                     for (size_t i = 0; i < energyBins.size() - 1; ++i) {
                         for (size_t j = 0; j < energyBins.size() - 1; ++j) {
@@ -568,30 +532,21 @@ int main()
                         }
                     }
                     
-                    
-                    
                     for (size_t j = 0; j < energyBins.size() - 1; ++j) {
                         if (recoE >= energyBins[j] && recoE < energyBins[j + 1]) {
                             ZGreco[j]->Fill( zgReco); // Fill the appropriate histogram
-                            
-                            
-                            
+                        
                         }
                         
                     }
-                    
-                    
                     
                     for (size_t j = 0; j < energyBins.size() - 1; ++j) {
                         if (genE >= energyBins[j] && genE < energyBins[j + 1]) {
                             ZGgen[j]->Fill( zgGen); // Fill the appropriate histogram
                             
                         }
-                        
                     }
-                    
                 }
-                
             }// if statement
             
             //gatering unmatced
@@ -599,21 +554,15 @@ int main()
                 
                 if (m.second <= 0  )
                     
-                    
                     //unmatchedGen.push_back( Gen[m.first] ) ;
                     
                     for ( int i = 0; i < Gen.size(); ++i) {
                         if( Exist[i]== false)
                             
-                            
                             //  FakeRecoJet.push_back( Reco[i].E) ;
-                            
                             UnmatchedGen-> Fill( Gen[m.first].E);
-                        
                     }
-                
             }
-            
         }
         for ( int i = 0; i < Reco.size(); ++i) {
             if( Exist[i]== false)
@@ -622,7 +571,6 @@ int main()
                 FakeRecoJetsE-> Fill (Reco[i].E);
             
         }
-      
         
     }
     //tranferring hist data
@@ -647,8 +595,6 @@ int main()
         }
     }
     
-    
-    
     for (size_t i = 0; i < numEnergyRanges; ++i) { // Loop over energy bins
         for (size_t j = 0; j < numBinsPerRange; ++j) { // Loop over ZG bins
             
@@ -662,7 +608,6 @@ int main()
             
             // Fill the big histogram
             SmearingZGrecoMatrix->SetBinContent(globalX, binContent);
-            
             
         }
     }
@@ -683,11 +628,10 @@ int main()
             
         }
     }
-    
-    
+
     input1->Close();
     
-    std::string outFileName = "output.root";  // Ensure the filename is valid
+    std::string outFileName = "Matched_jets.root";  // Ensure the filename is valid
     
     std::cout << "Attempting to open ROOT file: " << outFileName << std::endl;
     
@@ -749,7 +693,6 @@ int main()
     SmearingMatrix->Draw("COLZ");
     gPad->SetLogz(); // Optional log scale
     
-    
     TCanvas *canvas3 = new TCanvas("canvas3", "Gen Reco Energy", 1600, 1200);
     
     canvas3->Divide(2, 2);
@@ -758,14 +701,9 @@ int main()
     FakeRecoJetsE->Draw();
     
     canvas3->cd(1)->SetLogz();
-    
-    
     canvas3->cd(2);
     UnmatchedGen->Draw();
     canvas3->cd(2)->SetLogz();
-    
-    
-    
     canvas3->cd(3);
     RealRecoJetsE->Draw();
     canvas3->cd(3)->SetLogz();
@@ -774,8 +712,7 @@ int main()
     
     // Save the canvas as a PDF
     canvas_matrix->SaveAs("EnergyCorrelationMatrix.pdf");
-    
-    
+        
     input1->Close();
     delete input1;
     
