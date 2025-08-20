@@ -1,5 +1,5 @@
 
-default: RRec
+default:RRec
 
 objects: CATree.o DrawRandom.o DrawRandom2.o TauHelperFunctions3.o
 
